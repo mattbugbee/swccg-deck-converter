@@ -33,7 +33,7 @@
 </head>
 <body class="bg-gray-900 text-gray-200 flex items-center justify-center min-h-screen p-4">
 
-    <div class="w-full max-w-4xl mx-auto">
+    <div class="w-full max-w-7xl mx-auto">
         <header class="text-center mb-6">
             <h1 class="text-4xl font-bold text-yellow-400">SWCCG Deck Converter</h1>
             <p class="text-gray-400 mt-2">Convert plain-text decklists to GEMP XML format.</p>
@@ -41,10 +41,10 @@
 
         <div class="text-center mb-6">
             <button id="convert-btn" class="bg-yellow-500 text-gray-900 font-bold py-3 px-8 rounded-lg hover:bg-yellow-400 transition-colors shadow-md text-lg" disabled>Convert</button>
-            <button id="copy-btn" class="bg-blue-500 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-400 transition-colors shadow-md ml-4 text-lg">Copy output to clipboard</button>
+            <button id="copy-btn" class="bg-blue-500 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-400 transition-colors shadow-md ml-4 text-lg">Copy to Clipboard</button>
+            <button id="download-btn" class="bg-green-500 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-400 transition-colors shadow-md ml-4 text-lg">Download</button>
             <p id="status-message" class="text-yellow-300 mt-4 h-6">Loading card database...</p>
-            <p id="copy-feedback" class="text-green-400 mt-4 h-6 transition-opacity opacity-0"></p>
-            <!-- New Error Display Area -->
+            <!-- Error Display Area -->
             <div id="error-display" class="mt-4 p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-300 hidden"></div>
         </div>
 
@@ -74,10 +74,10 @@
         // --- Element References ---
         const convertBtn = document.getElementById('convert-btn');
         const copyBtn = document.getElementById('copy-btn');
+        const downloadBtn = document.getElementById('download-btn');
         const plainTextInput = document.getElementById('plain-text-input');
         const xmlOutput = document.getElementById('xml-output');
         const statusMessage = document.getElementById('status-message');
-        const copyFeedback = document.getElementById('copy-feedback');
         const errorDisplay = document.getElementById('error-display');
 
         // --- Core Functions ---
@@ -118,9 +118,8 @@
 
                 const processCards = (cardList, side) => {
                     for (const card of cardList) {
-                        // **FIXED**: Exclude Defensive Shields from the database.
                         if (card.front.type === "Defensive Shield") {
-                            continue; // Skip this card and move to the next one
+                            continue;
                         }
 
                         const fullTitle = card.front.title;
@@ -142,14 +141,13 @@
 
                 isDataLoaded = true;
                 statusMessage.textContent = `Database loaded with ${Object.keys(cardDatabase).length} unique titles. Ready!`;
-                statusMessage.classList.remove('text-yellow-300');
-                statusMessage.classList.add('text-green-400');
+                statusMessage.className = 'mt-4 h-6 text-green-400';
                 convertBtn.disabled = false;
 
             } catch (error) {
                 console.error("Failed to load card database:", error);
                 statusMessage.textContent = 'Error loading card database. Please try refreshing.';
-                statusMessage.classList.add('text-red-500');
+                statusMessage.className = 'mt-4 h-6 text-red-500';
             }
         }
         
@@ -159,8 +157,6 @@
          * @returns {string} The escaped string.
          */
         function escapeXml(str) {
-            // Reverted to the correct XML escaping function.
-            // This handles required characters like '&' but leaves apostrophes alone.
             return str.replace(/[<>&"]/g, (char) => {
                 switch (char) {
                     case '<': return '&lt;';
@@ -185,7 +181,6 @@
             const lines = inputText.split('\n');
             const lineRegex = /^\s*(\d+)\s*[xX]?\s*(.+?)\s*$/;
             
-            // --- First Pass: Determine Deck Allegiance ---
             let lightCount = 0;
             let darkCount = 0;
             lines.forEach(line => {
@@ -195,7 +190,7 @@
                     const cardEntry = cardDatabase[title];
                     if (cardEntry) {
                         const sides = Object.keys(cardEntry);
-                        if (sides.length === 1) { // Unambiguous card
+                        if (sides.length === 1) {
                             if (sides[0] === "Light") lightCount++;
                             if (sides[0] === "Dark") darkCount++;
                         }
@@ -205,9 +200,8 @@
             
             const deckSide = lightCount >= darkCount ? "Light" : "Dark";
             
-            // --- Second Pass: Generate XML and Collect Errors ---
             const xmlCards = [];
-            const notFoundCards = new Set(); // Use a Set to avoid duplicate error messages
+            const notFoundCards = new Set();
 
             lines.forEach(line => {
                 const match = line.match(lineRegex);
@@ -228,26 +222,23 @@
                     }
                     
                     if (blueprintId) {
-                        // Use the escapeXml function to create a valid title attribute.
                         const escapedTitle = escapeXml(normalizedTitle);
                         for (let i = 0; i < quantity; i++) {
                             xmlCards.push(`    <card blueprintId="${blueprintId}" title="${escapedTitle}"/>`);
                         }
                     } else {
                         xmlCards.push(`    <!-- Card not found: ${originalTitle} -->`);
-                        notFoundCards.add(originalTitle); // Add to error list
+                        notFoundCards.add(originalTitle);
                     }
                 }
             });
 
-            // --- Display Errors if any ---
-            errorDisplay.innerHTML = ''; // Clear previous errors
+            errorDisplay.innerHTML = '';
             errorDisplay.classList.add('hidden');
 
             if (notFoundCards.size > 0) {
                 let errorHtml = '<p class="font-bold mb-2">The following cards were not found:</p><ul class="list-disc list-inside text-left inline-block">';
                 notFoundCards.forEach(cardTitle => {
-                    // Still need to escape for HTML display to prevent injection
                     const safeTitle = cardTitle.replace(/[<>&]/g, (char) => {
                         switch (char) {
                             case '<': return '&lt;';
@@ -290,27 +281,47 @@
         }
 
         /**
+         * Downloads the generated XML as a file.
+         */
+        function downloadXml() {
+            if (!xmlOutput.value) {
+                showFeedback("Nothing to download!", "red");
+                return;
+            }
+            const blob = new Blob([xmlOutput.value], { type: 'application/xml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'deck.xml';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showFeedback("Downloading deck.xml...", "green");
+        }
+
+        /**
          * Shows a temporary feedback message to the user.
          * @param {string} message The message to display.
          * @param {string} color The color of the message ('green' or 'red').
          */
         function showFeedback(message, color) {
-            const feedbackEl = (message.includes("Copied") || message.includes("Nothing to copy") || message.includes("not loaded")) ? copyFeedback : statusMessage;
-            if (feedbackEl !== copyFeedback) {
-                 feedbackEl.textContent = message;
-            }
-            feedbackEl.textContent = message;
-            feedbackEl.className = `mt-4 h-6 transition-opacity opacity-100 ${color === 'green' ? 'text-green-400' : 'text-red-500'}`;
-            if (message.includes("Copied") || message.includes("Nothing to copy") || message.includes("not loaded")) {
-                setTimeout(() => {
-                    feedbackEl.classList.replace('opacity-100', 'opacity-0');
-                }, 2000);
-            }
+            const originalText = statusMessage.textContent;
+            const originalClasses = statusMessage.className;
+
+            statusMessage.textContent = message;
+            statusMessage.className = `mt-4 h-6 transition-opacity opacity-100 ${color === 'green' ? 'text-green-400' : 'text-red-500'}`;
+
+            setTimeout(() => {
+                statusMessage.textContent = originalText;
+                statusMessage.className = originalClasses;
+            }, 2000);
         }
 
         // --- Event Listeners and Initial Load ---
         convertBtn.addEventListener('click', convertToXml);
         copyBtn.addEventListener('click', copyToClipboard);
+        downloadBtn.addEventListener('click', downloadXml);
         document.addEventListener('DOMContentLoaded', loadCardData);
 
     </script>
